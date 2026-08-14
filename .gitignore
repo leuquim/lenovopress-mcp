@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.cache/
+.cache-test/
+coverage/
+*.log
+
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

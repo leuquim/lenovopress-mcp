@@ -1,0 +1,86 @@
+{
+  "status": "success",
+  "msg": null,
+  "errors": [],
+  "items": [
+    {
+      "index": 1,
+      "title": "Lenovo ThinkSystem SR680a V4 Server",
+      "relativeLink": "/lp2264-thinksystem-sr680a-v4-server",
+      "resourceType": "Product Guide",
+      "publishDate": "2025-09-02 00:30:00",
+      "lastUpdate": "2026-07-23 11:42:40",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 2,
+      "title": "Lenovo Hybrid AI 289 Platform Guide",
+      "relativeLink": "/lp2286-lenovo-hybrid-ai-289-platform-guide",
+      "resourceType": "Product Guide",
+      "publishDate": "2025-10-10 13:00:00",
+      "lastUpdate": "2026-04-24 08:46:31",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 3,
+      "title": "Smarter AI for All: Lenovo and NVIDIA Advance AI Inference Efficiency with MLPerf 6.0",
+      "relativeLink": "/lp2413-lenovo-and-nvidia-advance-ai-inference-efficiency-with-mlperf-60",
+      "resourceType": "Article",
+      "publishDate": "2026-04-01 11:00:00",
+      "lastUpdate": "2026-03-30 12:47:38",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 4,
+      "title": "Lenovo ThinkSystem SR680a V4",
+      "relativeLink": "/ds0198",
+      "resourceType": "Datasheet",
+      "publishDate": "2025-09-02 00:00:00",
+      "lastUpdate": "2026-04-01 05:42:35",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 5,
+      "title": "Balanced Memory Configurations for 2-Socket Servers with Intel Xeon 6 Processors",
+      "relativeLink": "/lp2272-balanced-memory-configurations-for-2-socket-servers-with-intel-xeon-6",
+      "resourceType": "Planning / Implementation",
+      "publishDate": "2025-12-17 16:00:00",
+      "lastUpdate": "2025-08-04 11:27:07",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 6,
+      "title": "3D tour: Lenovo ThinkSystem SR680a V4 Server",
+      "relativeLink": "/lp2346-3d-tour-thinksystem-sr680a-v4",
+      "resourceType": "Interactive 3D Tour",
+      "publishDate": "2025-12-15 06:59:00",
+      "lastUpdate": "2025-12-15 07:00:19",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 7,
+      "title": "Lenovo and NVIDIA Bring Future-Ready Compute to Life with MLPerf-Proven Results",
+      "relativeLink": "/lp2334-lenovo-and-nvidia-bring-future-ready-compute-to-life-with-mlperf-proven-results",
+      "resourceType": "Article",
+      "publishDate": "2025-11-12 11:00:00",
+      "lastUpdate": "2025-11-11 15:53:58",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    }
+  ],
+  "pager": { "page": "1", "total_pages": 1, "total_items": 7 },
+  "dg": false
+}

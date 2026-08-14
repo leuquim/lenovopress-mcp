@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "lenovo-press": {
+      "command": "node",
+      "args": ["C:\\absolute\\path\\to\\lenovopress-mcp\\dist\\index.js"],
+      "env": {
+        "PRESS_CACHE_DIR": "C:\\absolute\\path\\to\\lenovopress-mcp\\.cache"
+      }
+    }
+  }
+}

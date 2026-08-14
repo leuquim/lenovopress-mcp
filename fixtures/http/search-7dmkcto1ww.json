@@ -1,0 +1,53 @@
+{
+  "status": "success",
+  "msg": null,
+  "errors": [],
+  "items": [
+    {
+      "index": 1,
+      "title": "Lenovo ThinkSystem Server Comparison",
+      "relativeLink": "/lp1263-lenovo-thinksystem-server-comparison",
+      "resourceType": "Comparison Reference",
+      "publishDate": "2019-11-19 21:18:00",
+      "lastUpdate": "2026-07-27 17:16:53",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 2,
+      "title": "Lenovo ThinkSystem SR680a V4 Server",
+      "relativeLink": "/lp2264-thinksystem-sr680a-v4-server",
+      "resourceType": "Product Guide",
+      "publishDate": "2025-09-02 00:30:00",
+      "lastUpdate": "2026-07-23 11:42:40",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 3,
+      "title": "Lenovo EveryScale",
+      "relativeLink": "/lp0900-lenovo-everyscale-lesi",
+      "resourceType": "Product Guide",
+      "publishDate": "2018-06-07 09:00:00",
+      "lastUpdate": "2026-07-07 00:17:05",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 4,
+      "title": "Lenovo Hybrid AI 289 Platform Guide",
+      "relativeLink": "/lp2286-lenovo-hybrid-ai-289-platform-guide",
+      "resourceType": "Product Guide",
+      "publishDate": "2025-10-10 13:00:00",
+      "lastUpdate": "2026-04-24 08:46:31",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    }
+  ],
+  "pager": { "page": "1", "total_pages": 1, "total_items": 4 },
+  "dg": false
+}

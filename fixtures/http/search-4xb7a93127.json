@@ -1,0 +1,64 @@
+{
+  "status": "success",
+  "msg": null,
+  "errors": [],
+  "items": [
+    {
+      "index": 1,
+      "title": "Lenovo ThinkSystem SR650 V4 Server",
+      "relativeLink": "/lp2127-thinksystem-sr650-v4-server",
+      "resourceType": "Product Guide",
+      "publishDate": "2025-02-24 11:05:00",
+      "lastUpdate": "2026-08-14 07:43:03",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 2,
+      "title": "Lenovo ThinkSystem SR630 V4 Server",
+      "relativeLink": "/lp1971-thinksystem-sr630-v4-server",
+      "resourceType": "Product Guide",
+      "publishDate": "2024-09-03 00:30:00",
+      "lastUpdate": "2026-08-14 07:41:28",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 3,
+      "title": "Lenovo ThinkSystem SR650a V4 and SR650i V4 Servers",
+      "relativeLink": "/lp2128-thinksystem-sr650a-v4-server",
+      "resourceType": "Product Guide",
+      "publishDate": "2025-02-24 11:05:00",
+      "lastUpdate": "2026-08-14 07:40:16",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 4,
+      "title": "Lenovo ThinkSystem SR650 V3 Server",
+      "relativeLink": "/lp1601-thinksystem-sr650-v3-server",
+      "resourceType": "Product Guide",
+      "publishDate": "2023-01-10 13:00:00",
+      "lastUpdate": "2026-08-13 17:14:08",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 5,
+      "title": "Lenovo ThinkSystem SR665 V3 Server",
+      "relativeLink": "/lp1608-thinksystem-sr665-v3-server",
+      "resourceType": "Product Guide",
+      "publishDate": "2022-11-10 14:30:00",
+      "lastUpdate": "2026-08-13 15:49:14",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    }
+  ],
+  "pager": { "page": "1", "total_pages": 4, "total_items": 18 },
+  "dg": false
+}

@@ -1,0 +1,64 @@
+{
+  "status": "success",
+  "msg": null,
+  "errors": [],
+  "items": [
+    {
+      "index": 1,
+      "title": "Lenovo ThinkSystem SR650 V4 Server",
+      "relativeLink": "/lp2127-thinksystem-sr650-v4-server",
+      "resourceType": "Product Guide",
+      "publishDate": "2025-02-24 11:05:00",
+      "lastUpdate": "2026-08-14 07:43:03",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 2,
+      "title": "Lenovo ThinkSystem SR630 V4 Server",
+      "relativeLink": "/lp1971-thinksystem-sr630-v4-server",
+      "resourceType": "Product Guide",
+      "publishDate": "2024-09-03 00:30:00",
+      "lastUpdate": "2026-08-14 07:41:28",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 3,
+      "title": "Lenovo ThinkSystem SR650a V4 and SR650i V4 Servers",
+      "relativeLink": "/lp2128-thinksystem-sr650a-v4-server",
+      "resourceType": "Product Guide",
+      "publishDate": "2025-02-24 11:05:00",
+      "lastUpdate": "2026-08-14 07:40:16",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 4,
+      "title": "Microsoft SQL Server 2025 on Lenovo ThinkAgile HX V4 and FX V4 Systems",
+      "relativeLink": "/lp2488-microsoft-sql-server-2025-on-lenovo-thinkagile-hx-v4-and-fx-v4-systems",
+      "resourceType": "Solution Brief",
+      "publishDate": "2026-08-13 15:55:00",
+      "lastUpdate": "2026-08-12 13:47:31",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    },
+    {
+      "index": 5,
+      "title": "Lenovo ThinkAgile VX650a V4 Hyperconverged System",
+      "relativeLink": "/lp2228-lenovo-thinkagile-vx650a-v4-hyperconverged-system",
+      "resourceType": "Product Guide",
+      "publishDate": "2025-07-15 00:00:00",
+      "lastUpdate": "2026-08-05 00:00:32",
+      "withdrawn": 0,
+      "entitlement": "Unrestricted",
+      "has_entitled_content": 0
+    }
+  ],
+  "pager": { "page": "1", "total_pages": 5, "total_items": 24 },
+  "dg": false
+}
