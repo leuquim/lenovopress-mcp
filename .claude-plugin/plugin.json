@@ -1,0 +1,12 @@
+{
+  "name": "lenovo-press",
+  "description": "MCP server for public Lenovo Press documentation (product guides, datasheets, OSIG).",
+  "author": { "name": "leuquim" },
+  "mcpServers": {
+    "lenovo-press": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/index.js"],
+      "env": { "PRESS_CACHE_DIR": "${CLAUDE_PLUGIN_DATA}/cache" }
+    }
+  }
+}
