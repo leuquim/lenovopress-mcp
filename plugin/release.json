@@ -1,1 +1,1 @@
-{ "plugin": "lenovo-press", "include": ["dist"] }
+{ "plugin": "lenovo-press", "include": ["dist", "LICENSE"] }

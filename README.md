@@ -2,24 +2,36 @@
 
 A local [Model Context Protocol](https://modelcontextprotocol.io) server that pulls **public** [Lenovo Press](https://lenovopress.lenovo.com) documentation into an AI conversation.
 
-It is a documentation server, not a configurator. Use it for product guides, datasheets, option tables, generation comparisons, change history, related publications, and OSIG OS-support rows. Live catalog, product rules, compatibility, sessions, and CSE / CFR / CFXML stay in the separate [x-config MCP](https://github.com/leuquim/xconfig-mcp).
+It is a documentation server, not a configurator. Use it for product guides, datasheets, option tables, generation comparisons, change history, related publications, and OSIG OS-support rows. Live catalog, product rules, compatibility, sessions, and CSE / CFR / CFXML stay in the separate x-config MCP (private, for licensed x-config users).
 
 If Press and x-config disagree on a SKU, believe x-config.
 
-Authorized internal use. The server only fetches public Press pages (`entitled=0`, `drafts=0`). It does not log in as an employee and does not scrape the whole site.
+The server only fetches public Press pages (`entitled=0`, `drafts=0`), one page per tool call. It has no login path. Lenovo Press content belongs to Lenovo; this project is not affiliated with or endorsed by Lenovo.
 
 ## What it does
 
 - Search Press by form ID, MTM, feature code, part number, or text.
 - Resolve an identifier to the product guide, datasheet, or other candidates.
 - Read document metadata (authors, last update, PDF URL).
-- Fetch a table of contents, then one named section or table.
+- Fetch a table of contents, then one section or table by name or topic (`gpu`, `memory`), with continuation for long tables.
+- Find which guides list a part or feature code, with each matching row (`press_find_part`, `press_find_rows`).
+- Compare one topic across 2-4 guides side by side (`press_compare`).
+- Browse curated category and benchmark listings (`press_browse`).
 - Return dated change-history entries.
 - List related publications and the product-family bundle.
-- Look up a filtered OSIG OS-support page (never the multi-megabyte dump).
+- Look up OSIG OS support for a server, filtered by OS, version, support level and availability, with facets.
 - HEAD a PDF for URL, size, and Last-Modified without ingesting PDF bytes.
 
 Default retrieval is one search page or one document section. Full 60-page HTML and PDF bodies are never dumped into tool text.
+
+## Install as a Claude Code plugin
+
+```bash
+claude plugin marketplace add leuquim/lenovo-architect
+claude plugin install lenovo-press@lenovo-architect
+```
+
+The plugin ships the built server; no build step. To build from source instead, follow the setup below.
 
 ## Requirements
 
@@ -172,3 +184,7 @@ npm run verify
 ```
 
 Acceptance fixture is [LP2264](https://lenovopress.lenovo.com/lp2264-thinksystem-sr680a-v4-server) (ThinkSystem SR680a V4). Unit tests parse the saved HTML. E2E launches `dist/index.js` over stdio and calls resolve, outline, section, changes, search, OSIG, and PDF info.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
