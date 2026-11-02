@@ -27,17 +27,27 @@ export interface RawOsigItem {
     os_sub_version?: unknown;
     support_statement?: unknown;
     availability?: unknown;
+    notes?: unknown;
+    form_factor?: unknown;
+    server_family?: unknown;
+    replacement_server?: unknown;
     replacement_url?: unknown;
-    product_guide_url?: unknown;
 }
-export declare function normalizeOsig(raw: {
-    items?: unknown;
-    status?: unknown;
-}, options: {
+export declare function normalizeOsig(rows: OsigRow[], options: OsigOptions): OsigPage;
+export interface OsigOptions {
     offset: number;
     limit: number;
     includeWithdrawn: boolean;
-}): OsigPage;
+    osFamily?: string | undefined;
+    osVersion?: string | undefined;
+    supportStatement?: string | undefined;
+    availability?: string | undefined;
+}
+export declare function normalizeOsigRows(raw: {
+    items?: unknown;
+    status?: unknown;
+}): OsigRow[];
 export declare function normalizeOsigRow(raw: unknown): OsigRow | null;
 export declare function normalizePdfInfo(formId: string, url: string, headers: Headers | Record<string, string>): PdfInfo;
 export declare function rankHits(hits: SearchHit[], query: string): SearchHit[];
+export declare function isProductGuide(resourceType: string): boolean;

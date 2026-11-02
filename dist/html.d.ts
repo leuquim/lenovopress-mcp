@@ -1,5 +1,6 @@
 export declare function decodeEntities(value: string): string;
 export declare function stripTags(html: string): string;
+export declare function collapseText(html: string): string;
 export declare function attr(tag: string, name: string): string | null;
 export declare function hasClass(tag: string, className: string): boolean;
 /** Return the inner HTML of the element whose opening tag starts at `openIndex`. */

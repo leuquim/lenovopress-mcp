@@ -34,11 +34,12 @@ export function normalizeHit(raw) {
         entitlement: asString(raw.entitlement) ?? "Unrestricted",
     };
 }
-export function normalizeOsig(raw, options) {
-    const all = Array.isArray(raw.items) ? raw.items.map(normalizeOsigRow).filter((row) => row !== null) : [];
-    const filtered = options.includeWithdrawn
-        ? all
-        : all.filter((row) => !/^withdrawn$/i.test(row.availability));
+export function normalizeOsig(rows, options) {
+    const scoped = rows.filter((row) => matchesOsigSupport(row, options)
+        && (!options.availability || matchesExact(row.availability, options.availability)));
+    const withdrawn = new Set(scoped.filter(isWithdrawn));
+    const hiddenWithdrawn = options.includeWithdrawn ? 0 : withdrawn.size;
+    const filtered = options.includeWithdrawn ? scoped : scoped.filter((row) => !withdrawn.has(row));
     const slice = filtered.slice(options.offset, options.offset + options.limit);
     return {
         updated: null,
@@ -47,7 +48,20 @@ export function normalizeOsig(raw, options) {
         offset: options.offset,
         limit: options.limit,
         hasMore: options.offset + slice.length < filtered.length,
+        hiddenWithdrawn,
+        facets: {
+            osFamily: countFacets(scoped.map((row) => row.osFamily)),
+            osVersion: countFacets(scoped.map((row) => row.osVersion)),
+            osSubVersion: countFacets(scoped.map((row) => row.osSubVersion)),
+            supportStatement: countFacets(scoped.map((row) => row.supportStatement)),
+            availability: countFacets(scoped.map((row) => row.availability)),
+        },
     };
+}
+export function normalizeOsigRows(raw) {
+    return Array.isArray(raw.items)
+        ? raw.items.map(normalizeOsigRow).filter((row) => row !== null)
+        : [];
 }
 export function normalizeOsigRow(raw) {
     if (!raw || typeof raw !== "object")
@@ -56,6 +70,8 @@ export function normalizeOsigRow(raw) {
     const server = asString(item.server);
     if (!server)
         return null;
+    const replacementServer = asString(item.replacement_server);
+    const replacementUrl = asString(item.replacement_url);
     return {
         id: asString(item.id) ?? server,
         server,
@@ -65,8 +81,37 @@ export function normalizeOsigRow(raw) {
         osSubVersion: asString(item.os_sub_version) ?? "",
         supportStatement: asString(item.support_statement) ?? "",
         availability: asString(item.availability) ?? "",
-        productGuideUrl: asString(item.product_guide_url) ?? asString(item.replacement_url),
+        notes: asString(item.notes) ?? "",
+        formFactor: asString(item.form_factor) ?? "",
+        serverFamily: asString(item.server_family) ?? "",
+        ...(replacementServer ? { replacementServer } : {}),
+        ...(replacementUrl ? { replacementUrl } : {}),
     };
+}
+function matchesOsigSupport(row, options) {
+    if (options.osFamily && !matchesExact(row.osFamily, options.osFamily))
+        return false;
+    if (options.osVersion && !matchesExact(row.osVersion, options.osVersion) && !matchesExact(row.osSubVersion, options.osVersion))
+        return false;
+    if (options.supportStatement && !matchesExact(row.supportStatement, options.supportStatement))
+        return false;
+    return true;
+}
+function isWithdrawn(row) {
+    return /^withdrawn$/i.test(row.availability);
+}
+function matchesExact(value, expected) {
+    return value.toLowerCase() === expected.toLowerCase();
+}
+function countFacets(values) {
+    const counts = new Map();
+    for (const value of values) {
+        if (value)
+            counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+    return [...counts]
+        .map(([value, count]) => ({ value, count }))
+        .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value));
 }
 export function normalizePdfInfo(formId, url, headers) {
     const get = (name) => {
@@ -91,13 +136,16 @@ export function rankHits(hits, query) {
         return score(right, needle, form) - score(left, needle, form);
     });
 }
+export function isProductGuide(resourceType) {
+    return /product guide/i.test(resourceType);
+}
 function score(hit, needle, form) {
     let value = 0;
     if (hit.formId.toLowerCase() === needle || hit.formId.toLowerCase() === form)
         value += 100;
     if (hit.slug.toLowerCase() === needle)
         value += 80;
-    if (/product guide/i.test(hit.resourceType))
+    if (isProductGuide(hit.resourceType))
         value += 20;
     if (hit.title.toLowerCase().includes(needle))
         value += 10;
