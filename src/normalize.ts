@@ -1,6 +1,6 @@
 import { PRESS_ORIGIN } from "./config.js";
 import { formIdFromPath, machineTypeFromServer, slugFromPath } from "./ids.js";
-import type { OsigPage, OsigRow, PdfInfo, SearchHit, SearchPage } from "./types.js";
+import type { OsigFacet, OsigPage, OsigRow, PdfInfo, SearchHit, SearchPage } from "./types.js";
 
 export interface RawSearchItem {
   title?: unknown;
@@ -65,18 +65,22 @@ export interface RawOsigItem {
   os_sub_version?: unknown;
   support_statement?: unknown;
   availability?: unknown;
+  notes?: unknown;
+  form_factor?: unknown;
+  server_family?: unknown;
+  replacement_server?: unknown;
   replacement_url?: unknown;
-  product_guide_url?: unknown;
 }
 
 export function normalizeOsig(
-  raw: { items?: unknown; status?: unknown },
-  options: { offset: number; limit: number; includeWithdrawn: boolean },
+  rows: OsigRow[],
+  options: OsigOptions,
 ): OsigPage {
-  const all = Array.isArray(raw.items) ? raw.items.map(normalizeOsigRow).filter((row): row is OsigRow => row !== null) : [];
-  const filtered = options.includeWithdrawn
-    ? all
-    : all.filter((row) => !/^withdrawn$/i.test(row.availability));
+  const scoped = rows.filter((row) => matchesOsigSupport(row, options)
+    && (!options.availability || matchesExact(row.availability, options.availability)));
+  const withdrawn = new Set(scoped.filter(isWithdrawn));
+  const hiddenWithdrawn = options.includeWithdrawn ? 0 : withdrawn.size;
+  const filtered = options.includeWithdrawn ? scoped : scoped.filter((row) => !withdrawn.has(row));
   const slice = filtered.slice(options.offset, options.offset + options.limit);
   return {
     updated: null,
@@ -85,7 +89,31 @@ export function normalizeOsig(
     offset: options.offset,
     limit: options.limit,
     hasMore: options.offset + slice.length < filtered.length,
+    hiddenWithdrawn,
+    facets: {
+      osFamily: countFacets(scoped.map((row) => row.osFamily)),
+      osVersion: countFacets(scoped.map((row) => row.osVersion)),
+      osSubVersion: countFacets(scoped.map((row) => row.osSubVersion)),
+      supportStatement: countFacets(scoped.map((row) => row.supportStatement)),
+      availability: countFacets(scoped.map((row) => row.availability)),
+    },
   };
+}
+
+export interface OsigOptions {
+  offset: number;
+  limit: number;
+  includeWithdrawn: boolean;
+  osFamily?: string | undefined;
+  osVersion?: string | undefined;
+  supportStatement?: string | undefined;
+  availability?: string | undefined;
+}
+
+export function normalizeOsigRows(raw: { items?: unknown; status?: unknown }): OsigRow[] {
+  return Array.isArray(raw.items)
+    ? raw.items.map(normalizeOsigRow).filter((row): row is OsigRow => row !== null)
+    : [];
 }
 
 export function normalizeOsigRow(raw: unknown): OsigRow | null {
@@ -93,6 +121,8 @@ export function normalizeOsigRow(raw: unknown): OsigRow | null {
   const item = raw as RawOsigItem;
   const server = asString(item.server);
   if (!server) return null;
+  const replacementServer = asString(item.replacement_server);
+  const replacementUrl = asString(item.replacement_url);
   return {
     id: asString(item.id) ?? server,
     server,
@@ -102,8 +132,37 @@ export function normalizeOsigRow(raw: unknown): OsigRow | null {
     osSubVersion: asString(item.os_sub_version) ?? "",
     supportStatement: asString(item.support_statement) ?? "",
     availability: asString(item.availability) ?? "",
-    productGuideUrl: asString(item.product_guide_url) ?? asString(item.replacement_url),
+    notes: asString(item.notes) ?? "",
+    formFactor: asString(item.form_factor) ?? "",
+    serverFamily: asString(item.server_family) ?? "",
+    ...(replacementServer ? { replacementServer } : {}),
+    ...(replacementUrl ? { replacementUrl } : {}),
   };
+}
+
+function matchesOsigSupport(row: OsigRow, options: OsigOptions): boolean {
+  if (options.osFamily && !matchesExact(row.osFamily, options.osFamily)) return false;
+  if (options.osVersion && !matchesExact(row.osVersion, options.osVersion) && !matchesExact(row.osSubVersion, options.osVersion)) return false;
+  if (options.supportStatement && !matchesExact(row.supportStatement, options.supportStatement)) return false;
+  return true;
+}
+
+function isWithdrawn(row: OsigRow): boolean {
+  return /^withdrawn$/i.test(row.availability);
+}
+
+function matchesExact(value: string, expected: string): boolean {
+  return value.toLowerCase() === expected.toLowerCase();
+}
+
+function countFacets(values: string[]): OsigFacet[] {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return [...counts]
+    .map(([value, count]) => ({ value, count }))
+    .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value));
 }
 
 export function normalizePdfInfo(formId: string, url: string, headers: Headers | Record<string, string>): PdfInfo {
@@ -130,11 +189,15 @@ export function rankHits(hits: SearchHit[], query: string): SearchHit[] {
   });
 }
 
+export function isProductGuide(resourceType: string): boolean {
+  return /product guide/i.test(resourceType);
+}
+
 function score(hit: SearchHit, needle: string, form: string): number {
   let value = 0;
   if (hit.formId.toLowerCase() === needle || hit.formId.toLowerCase() === form) value += 100;
   if (hit.slug.toLowerCase() === needle) value += 80;
-  if (/product guide/i.test(hit.resourceType)) value += 20;
+  if (isProductGuide(hit.resourceType)) value += 20;
   if (hit.title.toLowerCase().includes(needle)) value += 10;
   if (!hit.withdrawn) value += 5;
   if (hit.entitlement === "Unrestricted") value += 2;

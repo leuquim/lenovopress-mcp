@@ -1,5 +1,5 @@
 import { PRESS_ORIGIN } from "./config.js";
-import { attr, decodeEntities, elementInner, findOpenTag, hasClass, stripTags } from "./html.js";
+import { attr, collapseText, decodeEntities, elementInner, findOpenTag, hasClass, stripTags } from "./html.js";
 import { extractParts, formIdFromPath, isFeatureCode, isMtm, isPartNumber, pdfUrl, slugFromPath } from "./ids.js";
 import type {
   ChangeEntry,
@@ -30,6 +30,57 @@ export interface ParsedDocument {
   tables: Map<string, { table: PressTable; sectionId: string | null }>;
 }
 
+export interface BrowsePage {
+  items: Array<{
+    formId: string;
+    slug: string;
+    url: string;
+    title: string;
+    resourceType: string | null;
+    date: string | null;
+  }>;
+  totalItems: number;
+  hasMore: boolean;
+}
+
+export function parseBrowsePage(html: string): BrowsePage {
+  const resultsStart = findOpenTag(html, (tag) => /^<ol\b/i.test(tag) && attr(tag, "id") === "results");
+  const results = resultsStart < 0 ? null : elementInner(html, resultsStart);
+  if (!results) return { items: [], totalItems: 0, hasMore: false };
+  const items: BrowsePage["items"] = [];
+  const resultRe = /<li\b[^>]*\bclass=(?:"[^"]*\bresult-item\b[^"]*"|'[^']*\bresult-item\b[^']*')[^>]*>/gi;
+  let result: RegExpExecArray | null;
+  while ((result = resultRe.exec(results.inner))) {
+    const entry = elementInner(results.inner, result.index);
+    if (!entry) continue;
+    const linkRe = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
+    let link: RegExpExecArray | null;
+    while ((link = linkRe.exec(entry.inner))) {
+      const href = attr(`<a ${link[1] ?? ""}>`, "href");
+      if (!href) continue;
+      const formId = formIdFromPath(href);
+      if (!formId) continue;
+      const metadata = collapseText(entry.inner.slice(link.index + link[0].length));
+      const details = metadata.match(/^(.*?)\s*,\s*(?:published|last updated)\s+(.+)$/i);
+      items.push({
+        formId,
+        slug: slugFromPath(href),
+        url: absolutize(href),
+        title: collapseText(link[2] ?? ""),
+        resourceType: details?.[1]?.trim() || null,
+        date: details?.[2]?.trim() || null,
+      });
+      break;
+    }
+  }
+  const pager = results.inner.match(/\bof\s+(\d+)\b/i);
+  return {
+    items,
+    totalItems: pager?.[1] ? Number.parseInt(pager[1], 10) : items.length,
+    hasMore: /<li\b[^>]*\bclass=(?:"[^"]*\bnext\b[^"]*"|'[^']*\bnext\b[^']*')/i.test(results.inner),
+  };
+}
+
 export function parseDocument(html: string, sourceUrl: string): ParsedDocument {
   const content = isolateContent(html);
   const meta = parseMeta(html, sourceUrl);
@@ -50,12 +101,16 @@ export function parseDocument(html: string, sourceUrl: string): ParsedDocument {
 export function renderSection(
   parsed: ParsedDocument,
   sectionOrTableId: string,
-  options: { includeWithdrawn?: boolean; maxBytes?: number } = {},
+  options: { includeWithdrawn?: boolean; maxBytes?: number; rowOffset?: number; format?: "markdown" | "tables" } = {},
 ): SectionPayload {
   const includeWithdrawn = options.includeWithdrawn === true;
   const maxBytes = options.maxBytes ?? 80_000;
-  const tableHit = parsed.tables.get(sectionOrTableId);
-  const sectionId = tableHit?.sectionId ?? sectionOrTableId;
+  const rowOffset = options.rowOffset ?? 0;
+  const format = options.format ?? "markdown";
+  const exactTable = parsed.tables.get(sectionOrTableId);
+  const exactSection = parsed.sections.has(sectionOrTableId);
+  const sectionId = exactTable?.sectionId ?? (exactSection ? sectionOrTableId : matchSections(parsed, sectionOrTableId)[0] ?? sectionOrTableId);
+  const tableHit = exactTable;
   const section = parsed.sections.get(sectionId);
   if (!section && !tableHit) {
     const available = [...parsed.sections.keys(), ...parsed.tables.keys()].slice(0, 40);
@@ -68,20 +123,77 @@ export function renderSection(
       .filter((entry) => entry.sectionId === sectionId)
       .map((entry) => entry.table);
   const tables = rawTables.map((table) => filterTable(table, includeWithdrawn));
-  const markdown = tableHit
-    ? tableToMarkdown(tables[0]!)
-    : htmlToMarkdown(section?.html ?? "", includeWithdrawn);
+  const prose = tableHit ? "" : sectionProse(section?.html ?? "", includeWithdrawn);
   const identifiers = tables.flatMap((table) => identifiersFromTable(table));
   const payload: SectionPayload = {
     formId: parsed.meta.formId,
     sectionId,
     title,
-    markdown,
+    markdown: prose,
     tables,
     identifiers: uniqueIdentifiers(identifiers),
     truncated: false,
+    rowOffset,
+    hasMore: false,
+    nextRowOffset: null,
   };
-  return clipSection(payload, maxBytes);
+  return clipSection(payload, maxBytes, rowOffset, format, prose);
+}
+
+export interface RowMatch {
+  sectionId: string | null;
+  tableId: string;
+  caption: string;
+  header: string[];
+  row: string[];
+  withdrawn: boolean;
+}
+
+export function findRows(parsed: ParsedDocument, needle: string): RowMatch[] {
+  const query = needle.trim();
+  if (!query) return [];
+  const matcher = new RegExp(`\\b${escapeRegExp(query)}\\b`, "i");
+  const matches: RowMatch[] = [];
+  for (const { table, sectionId } of parsed.tables.values()) {
+    table.rows.forEach((row, index) => {
+      if (row.some((cell) => matcher.test(cell))) {
+        matches.push({
+          sectionId,
+          tableId: table.id,
+          caption: table.caption,
+          header: table.columns,
+          row,
+          withdrawn: table.rowWithdrawn[index] === true,
+        });
+      }
+    });
+  }
+  return matches;
+}
+
+function topicTokens(topic: string): string[] {
+  return topic.trim().toLowerCase().split(/[\s_-]+/).filter(Boolean);
+}
+
+export function matchSections(parsed: ParsedDocument, topic: string): string[] {
+  const normalized = topic.trim().toLowerCase();
+  if (!normalized) return [];
+  const slug = normalized.replace(/[\s_]+/g, "-");
+  const tokens = topicTokens(topic);
+  const sections = [...parsed.sections.entries()];
+  const matching = (predicate: ([id, section]: [string, { title: string; html: string }]) => boolean) =>
+    sections.filter(predicate).map(([id]) => id);
+  return matching(([id]) => id.toLowerCase() === normalized)
+    .concat(matching(([id]) => id.toLowerCase().startsWith(slug)))
+    .concat(matching(([id]) => hasAllTokens(id, tokens)))
+    .concat(matching(([, section]) => hasAllTokens(section.title, tokens)))
+    .concat(matching(([id]) => tokens.some((token) => id.toLowerCase().includes(token))))
+    .filter((id, index, values) => values.indexOf(id) === index);
+}
+
+function hasAllTokens(value: string, tokens: string[]): boolean {
+  const lower = value.toLowerCase();
+  return tokens.every((token) => lower.includes(token));
 }
 
 function isolateContent(html: string): string {
@@ -200,22 +312,25 @@ function parseTable(inner: string, autoIndex: number): PressTable | null {
   const captionId = captionHtml.match(/\bid="([^"]+)"/i)?.[1];
   const caption = stripTags(captionHtml).trim() || `Table ${autoIndex}`;
   const thead = inner.match(/<thead\b[^>]*>([\s\S]*?)<\/thead>/i)?.[1] ?? "";
-  const headerRow = firstRow(thead) ?? firstRow(inner);
-  const columns = headerRow ? cells(headerRow).map((cell) => cell.text) : [];
+  const headerRows = allRows(thead);
+  const headerRow = headerRows[0]?.html ?? firstRow(inner);
+  const columns = headerRows.length > 0
+    ? tableHeader(headerRows.map((row) => cells(row.html)))
+    : headerRow ? cells(headerRow).map((cell) => cell.text) : [];
   if (columns.length === 0) return null;
   const body = inner.match(/<tbody\b[^>]*>([\s\S]*?)<\/tbody>/i)?.[1] ?? inner;
+  const bodyRows = allRows(body);
+  const bodyCells = bodyRows.map((row) => cells(row.html));
+  const expandedRows = expandGrid(bodyCells, columns.length);
   const rows: string[][] = [];
   const rowWithdrawn: boolean[] = [];
-  for (const row of allRows(body)) {
-    const parsed = cells(row.html);
+  for (let index = 0; index < bodyRows.length; index += 1) {
+    const row = bodyRows[index]!;
+    const parsed = bodyCells[index]!;
     if (parsed.length === 0) continue;
     if (headerRow && row.html === headerRow) continue;
     if (parsed.every((cell) => cell.text === "") && parsed.length === 1) continue;
-    const values = parsed.map((cell) => cell.text);
-    if (columns.length > 0 && values.length !== columns.length) {
-      while (values.length < columns.length) values.push("");
-    }
-    rows.push(values);
+    rows.push(expandedRows[index] ?? Array.from({ length: columns.length }, () => ""));
     rowWithdrawn.push(row.withdrawn);
   }
   return {
@@ -244,19 +359,48 @@ function allRows(html: string): Array<{ html: string; withdrawn: boolean }> {
   return rows;
 }
 
-function cells(rowHtml: string): Array<{ text: string; withdrawn: boolean }> {
-  const out: Array<{ text: string; withdrawn: boolean }> = [];
+function cells(rowHtml: string): Array<{ text: string; withdrawn: boolean; colspan: number; rowspan: number }> {
+  const out: Array<{ text: string; withdrawn: boolean; colspan: number; rowspan: number }> = [];
   const re = /<t[dh]\b([^>]*)>/gi;
   let match: RegExpExecArray | null;
   while ((match = re.exec(rowHtml))) {
     const extracted = elementInner(rowHtml, match.index);
     if (!extracted) continue;
     out.push({
-      text: stripTags(extracted.inner).replace(/\s+/g, " ").trim(),
+      text: collapseText(extracted.inner),
       withdrawn: hasClass(match[0], "withdrawn"),
+      colspan: Number.parseInt(attr(match[0], "colspan") ?? "1", 10) || 1,
+      rowspan: Number.parseInt(attr(match[0], "rowspan") ?? "1", 10) || 1,
     });
   }
   return out;
+}
+
+function tableHeader(rows: Array<Array<{ text: string; colspan: number; rowspan: number }>>): string[] {
+  const grid = expandGrid(rows);
+  const width = Math.max(...grid.map((row) => row.length));
+  return Array.from({ length: width }, (_, column) => {
+    const labels = grid.map((row) => row[column]).filter((label): label is string => Boolean(label));
+    return [...new Set(labels)].join(" / ");
+  });
+}
+
+function expandGrid(rows: Array<Array<{ text: string; colspan: number; rowspan: number }>>, width?: number): string[][] {
+  const grid: string[][] = [];
+  rows.forEach((row, rowIndex) => {
+    grid[rowIndex] ??= [];
+    let column = 0;
+    for (const cell of row) {
+      while (grid[rowIndex]![column] !== undefined) column += 1;
+      for (let y = rowIndex; y < rowIndex + cell.rowspan; y += 1) {
+        grid[y] ??= [];
+        for (let x = column; x < column + cell.colspan; x += 1) grid[y]![x] = cell.text;
+      }
+      column += cell.colspan;
+    }
+  });
+  const finalWidth = width ?? Math.max(0, ...grid.map((row) => row.length));
+  return grid.map((row) => Array.from({ length: finalWidth }, (_, column) => row[column] ?? ""));
 }
 
 function buildOutline(
@@ -320,7 +464,7 @@ export function parseChanges(html: string, formId: string, lastUpdate: string | 
     while ((item = itemRe.exec(topList))) {
       const raw = item[1] ?? "";
       if (item.index > 0 && topList.slice(0, item.index).includes("<ul>")) continue;
-      const text = stripTags(raw).replace(/\s+/g, " ").trim();
+      const text = collapseText(raw);
       if (!text) continue;
       const sectionId = raw.match(/href="#([^"]+)"/i)?.[1] ?? null;
       bullets.push({ text, sectionId, parts: extractParts(text) });
@@ -407,32 +551,50 @@ function filterTable(table: PressTable, includeWithdrawn: boolean): PressTable {
   return { ...table, rows, rowWithdrawn, withdrawnRows: 0 };
 }
 
-function identifiersFromTable(table: PressTable): Identifier[] {
+interface IdentifierColumns {
+  part: number;
+  feature: number;
+  mtm: number;
+}
+
+function identifierColumns(table: PressTable): IdentifierColumns {
+  return {
+    part: table.columns.findIndex((col) => /part\s*number/i.test(col)),
+    feature: table.columns.findIndex((col) => /feature\s*code/i.test(col)),
+    mtm: table.columns.findIndex((col) => /machine\s*type|mtm|model/i.test(col)),
+  };
+}
+
+function identifiersFromRow(row: string[], columns: IdentifierColumns): Identifier[] {
   const found: Identifier[] = [];
-  const partIdx = table.columns.findIndex((col) => /part\s*number/i.test(col));
-  const featureIdx = table.columns.findIndex((col) => /feature\s*code/i.test(col));
-  const mtmIdx = table.columns.findIndex((col) => /machine\s*type|mtm|model/i.test(col));
-  for (const row of table.rows) {
-    const part = partIdx >= 0 ? row[partIdx] : undefined;
-    const feature = featureIdx >= 0 ? row[featureIdx] : undefined;
-    const mtm = mtmIdx >= 0 ? row[mtmIdx] : undefined;
-    if (part && isPartNumber(part)) found.push({ kind: "part", value: part.toUpperCase() });
-    if (feature && isFeatureCode(feature)) found.push({ kind: "feature", value: feature.toUpperCase() });
-    if (mtm && isMtm(mtm.split(/\s|\//)[0] ?? "")) {
-      found.push({ kind: "mtm", value: (mtm.split(/\s|\//)[0] ?? "").toUpperCase() });
-    }
+  const part = columns.part >= 0 ? row[columns.part] : undefined;
+  const feature = columns.feature >= 0 ? row[columns.feature] : undefined;
+  const mtm = columns.mtm >= 0 ? row[columns.mtm] : undefined;
+  if (part && isPartNumber(part)) found.push({ kind: "part", value: part.toUpperCase() });
+  if (feature && isFeatureCode(feature)) found.push({ kind: "feature", value: feature.toUpperCase() });
+  if (mtm && isMtm(mtm.split(/\s|\//)[0] ?? "")) {
+    found.push({ kind: "mtm", value: (mtm.split(/\s|\//)[0] ?? "").toUpperCase() });
   }
   return found;
+}
+
+function identifiersFromTable(table: PressTable): Identifier[] {
+  const columns = identifierColumns(table);
+  return table.rows.flatMap((row) => identifiersFromRow(row, columns));
 }
 
 function uniqueIdentifiers(items: Identifier[]): Identifier[] {
   const seen = new Set<string>();
   return items.filter((item) => {
-    const key = `${item.kind}:${item.value}`;
+    const key = identifierKey(item);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+}
+
+export function identifierKey(identifier: Identifier): string {
+  return `${identifier.kind}:${identifier.value}`;
 }
 
 function htmlToMarkdown(html: string, includeWithdrawn: boolean): string {
@@ -451,31 +613,103 @@ function htmlToMarkdown(html: string, includeWithdrawn: boolean): string {
   return stripTags(working).trim();
 }
 
+function sectionProse(html: string, includeWithdrawn: boolean): string {
+  return htmlToMarkdown(html.replace(/<table\b[\s\S]*?<\/table>/gi, ""), includeWithdrawn);
+}
+
 function tableToMarkdown(table: PressTable): string {
   const header = `| ${table.columns.join(" | ")} |`;
   const sep = `| ${table.columns.map(() => "---").join(" | ")} |`;
-  const rows = table.rows.map((row) => `| ${row.map(escapeCell).join(" | ")} |`);
+  const rows = table.rows.map(rowToMarkdown);
   return [`**${table.caption}**`, header, sep, ...rows].join("\n");
+}
+
+function rowToMarkdown(row: string[]): string {
+  return `| ${row.map(escapeCell).join(" | ")} |`;
 }
 
 function escapeCell(value: string): string {
   return value.replace(/\|/g, "\\|").replace(/\n/g, " ");
 }
 
-function clipSection(payload: SectionPayload, maxBytes: number): SectionPayload {
-  if (Buffer.byteLength(JSON.stringify(payload), "utf8") <= maxBytes) return payload;
-  const clipped: SectionPayload = {
-    ...payload,
-    tables: payload.tables.slice(0, 1),
-    markdown: payload.markdown.slice(0, Math.max(2000, maxBytes / 4)),
-    truncated: true,
-  };
-  if (Buffer.byteLength(JSON.stringify(clipped), "utf8") <= maxBytes) return clipped;
+function clipSection(
+  payload: SectionPayload,
+  maxBytes: number,
+  rowOffset: number,
+  format: "markdown" | "tables",
+  prose: string,
+): SectionPayload {
+  const pageProse = rowOffset === 0 ? prose : "";
+  const allTables = payload.tables ?? [];
+  const identifierColumnsByTable = allTables.map(identifierColumns);
+  const rows = allTables.flatMap((table, tableIndex) => table.rows.map((row, rowIndex) => ({
+    tableIndex,
+    row,
+    withdrawn: table.rowWithdrawn[rowIndex] === true,
+  })));
+  const visible = allTables.map((table) => ({ ...table, rows: [] as string[][], rowWithdrawn: [] as boolean[], withdrawnRows: 0 }));
+  let cursor = Math.min(rowOffset, rows.length);
+  let bytes = Buffer.byteLength(JSON.stringify({ ...payload, markdown: format === "markdown" ? pageProse : undefined, tables: format === "tables" ? [] : undefined, identifiers: [], truncated: true, rowOffset, hasMore: true, nextRowOffset: cursor }), "utf8");
+  let markdown = pageProse;
+  const identifiers: Identifier[] = [];
+  while (cursor < rows.length) {
+    const item = rows[cursor]!;
+    const table = visible[item.tableIndex]!;
+    const firstInTable = table.rows.length === 0;
+    const rowMarkdown = format === "markdown"
+      ? `${firstInTable && markdown ? "\n\n" : ""}${firstInTable ? tableToMarkdown({ ...table, rows: [], rowWithdrawn: [] }) : ""}${firstInTable ? "\n" : ""}${rowToMarkdown(item.row)}`
+      : "";
+    const rowIds = identifiersFromRow(item.row, identifierColumnsByTable[item.tableIndex]!);
+    const rowBytes = Buffer.byteLength(format === "markdown" ? rowMarkdown : JSON.stringify(item.row), "utf8") + Buffer.byteLength(rowIds.map((identifier) => `${identifier.kind}:${identifier.value}`).join(","), "utf8") + (firstInTable && format === "tables" ? Buffer.byteLength(JSON.stringify({ id: table.id, caption: table.caption, columns: table.columns }), "utf8") : 0) + 128;
+    if (cursor > rowOffset && bytes + rowBytes > maxBytes) break;
+    table.rows.push(item.row);
+    table.rowWithdrawn.push(item.withdrawn);
+    if (item.withdrawn) table.withdrawnRows += 1;
+    if (format === "markdown") markdown += rowMarkdown;
+    identifiers.push(...rowIds);
+    bytes += rowBytes;
+    cursor += 1;
+  }
+  const tables = visible.filter((table) => table.rows.length > 0);
+  const nextRowOffset = cursor < rows.length ? cursor : null;
+  const hasMore = nextRowOffset !== null;
+  let clipped = false;
+  if (format === "markdown") {
+    const suffix = markdown.slice(pageProse.length);
+    ({ markdown, clipped } = truncateMarkdown({ prose: pageProse, suffix, maxBytes, payload, identifiers, rowOffset, nextRowOffset, hasMore }));
+  }
+  const { markdown: _markdown, tables: _tables, ...base } = payload;
   return {
-    ...clipped,
-    markdown: clipped.markdown.slice(0, 1500),
-    tables: clipped.tables.map((table) => ({ ...table, rows: table.rows.slice(0, 8) })),
+    ...base,
+    ...(format === "markdown" ? { markdown } : { tables }),
+    identifiers: uniqueIdentifiers(identifiers),
+    truncated: hasMore || clipped,
+    rowOffset,
+    hasMore,
+    nextRowOffset,
   };
+}
+
+function truncateMarkdown(frame: { prose: string; suffix: string; maxBytes: number; payload: SectionPayload; identifiers: Identifier[]; rowOffset: number; nextRowOffset: number | null; hasMore: boolean }): { markdown: string; clipped: boolean } {
+  const { tables: _tables, ...base } = frame.payload;
+  const candidate = (markdown: string, truncated: boolean) => ({ ...base, markdown, identifiers: uniqueIdentifiers(frame.identifiers), truncated, rowOffset: frame.rowOffset, hasMore: frame.hasMore, nextRowOffset: frame.nextRowOffset });
+  const encoded = Buffer.from(frame.prose);
+  if (Buffer.byteLength(JSON.stringify(candidate(frame.prose + frame.suffix, frame.hasMore)), "utf8") <= frame.maxBytes) {
+    return { markdown: frame.prose + frame.suffix, clipped: false };
+  }
+  let low = 0;
+  let high = encoded.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    const value = encoded.subarray(0, middle).toString("utf8");
+    if (Buffer.byteLength(JSON.stringify(candidate(value + frame.suffix, true)), "utf8") <= frame.maxBytes) low = middle;
+    else high = middle - 1;
+  }
+  return { markdown: encoded.subarray(0, low).toString("utf8") + frame.suffix, clipped: true };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function firstText(html: string, re: RegExp): string | null {

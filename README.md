@@ -105,14 +105,18 @@ The server name is `lenovo-press`. Every tool is prefixed `press_`. All tools ar
 
 | Tool | What it does |
 | --- | --- |
-| `press_search` | Paginated public search. Query can be a form ID, MTM, feature, part, or text. |
+| `press_search` | Paginated public search, with an optional resource-type filter. Query can be a form ID, MTM, feature, part, or text; includes retrieval time and source. |
+| `press_browse` | Browse a supported server, option, networking, or benchmark category page, with document type, date, and pagination. |
 | `press_resolve` | Ranked candidates for a URL, form ID, slug, MTM, feature, or part. Product guides rank first. |
 | `press_document_meta` | Title, authors, updated date, resource type, PDF URL. |
 | `press_document_outline` | Section list and table captions. Call this before fetching a section. |
-| `press_document_section` | One section or table as markdown plus structured rows and identifiers. |
+| `press_document_section` | One section or table in `markdown` (default) or structured `tables` format plus identifiers. Follow `nextRowOffset` for clipped rows. |
+| `press_find_rows` | Exact-token row lookup within one document, with retrieval time and source. Search first to find documents that mention a part. |
+| `press_compare` | Compare one topic across 2-4 guides, with independently matched sections and shared identifiers. |
+| `press_find_part` | Search and inspect matching table rows across up to 10 Press documents in one call. |
 | `press_document_changes` | Dated change-history entries. `latestOnly` defaults to true. |
 | `press_related` | Related publications, family links, and the family document bundle. |
-| `press_osig_lookup` | Filtered OSIG rows (server, OS, support statement, availability). |
+| `press_osig_lookup` | Filtered OSIG rows with count-sorted facets for narrowing; `hiddenWithdrawn` reports matching withdrawn rows excluded by default. |
 | `press_pdf_info` | PDF URL and HEAD metadata. Does not download PDF bytes. |
 
 Prompts `press_options_brief` and `press_what_changed` are registered for the two most common architect jobs.
@@ -136,19 +140,19 @@ Short tokens (`CX8`, `B300`) are full-text search and can over-match. Prefer a f
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PRESS_CACHE_DIR` | `<repo>/.cache` | Disk cache for live HTTP responses. |
-| `PRESS_FIXTURE_DIR` | `<repo>/fixtures` when present | Offline HTML/JSON overlays used by tests. |
-| `PRESS_RATE_LIMIT_MS` | `60000` | Minimum delay between live fetches (`robots.txt` crawl-delay). Cache hits do not wait. |
+| `PRESS_FIXTURE_DIR` | unset | Offline HTML/JSON overlays used by tests when explicitly set. |
 | `PRESS_OFFLINE` | unset | If `1`, never hit the network. Missing fixture/cache is an error. |
 | `PRESS_REQUEST_TIMEOUT_MS` | `30000` | Per-request timeout. |
 | `PRESS_MCP_ROOT` | Auto-detected | Override the project root if the layout is unusual. |
 
 The server is stdio-only. It opens no port. stdout is MCP JSON-RPC; diagnostics go to stderr.
 
-## Public-only and rate limits
+## Public-only retrieval
 
 - Search always sends `entitled=0` and `drafts=0`.
 - There is no employee-login path.
-- Live fetches honor a 60 second crawl-delay unless the response is already cached.
+- Fetches are user-initiated, one page per tool call; no crawling.
+- Results include `retrievedAt` and `source`; set a tool's optional `refresh` to bypass memory, disk, and parsed-document caches.
 - OSIG lookups require a server term (`7DMK`, `SR680a V4`). The unfiltered OSIG XML/Excel export is refused.
 
 ## Layout

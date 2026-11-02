@@ -5,10 +5,14 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const expectedTools = [
+  "press_browse",
+  "press_compare",
   "press_document_changes",
   "press_document_meta",
   "press_document_outline",
   "press_document_section",
+  "press_find_part",
+  "press_find_rows",
   "press_osig_lookup",
   "press_pdf_info",
   "press_related",
@@ -30,7 +34,6 @@ describe.sequential("MCP stdio Press surface", () => {
       PRESS_MCP_ROOT: projectRoot,
       PRESS_FIXTURE_DIR: path.join(projectRoot, "fixtures"),
       PRESS_OFFLINE: "1",
-      PRESS_RATE_LIMIT_MS: "0",
     }),
     stderr: "pipe",
   });
@@ -96,6 +99,11 @@ describe.sequential("MCP stdio Press surface", () => {
     expect(payload).toContain("CBAG");
     expect(payload).not.toMatch(/<!DOCTYPE html>/i);
     expect(Buffer.byteLength(payload, "utf8")).toBeLessThan(200_000);
+    expect(gpu.markdown).toEqual(expect.any(String));
+    expect(gpu.tables).toBeUndefined();
+    const gpuTables = await call("press_document_section", { id: "LP2264", section: "gpu-accelerators", format: "tables" });
+    expect(gpuTables.markdown).toBeUndefined();
+    expect(gpuTables.tables).toEqual(expect.any(Array));
     const compare = await call("press_document_section", { id: "LP2264", section: "comparing-the-sr680a-v4-to-the-sr680a-v3" });
     expect(JSON.stringify(compare)).toMatch(/SR680a V3/i);
     log("gpu-section-bytes", Buffer.byteLength(payload, "utf8"));
@@ -115,6 +123,8 @@ describe.sequential("MCP stdio Press surface", () => {
     expect(Number(search.totalItems)).toBeGreaterThan(1);
     expect((search.items as unknown[]).length).toBeGreaterThan(1);
     expect((search.items as Array<{ lastUpdate: string }>)[0]?.lastUpdate).toBeTruthy();
+    expect(search).toMatchObject({ source: "fixture" });
+    expect(String(search.retrievedAt)).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
     for (const query of ["C5QY", "B300", "CX8"]) {
       const page = await call("press_search", { query, limit: 5 });
@@ -125,10 +135,23 @@ describe.sequential("MCP stdio Press surface", () => {
 
     const osig = await call("press_osig_lookup", { query: "7DMK", limit: 8 });
     const rows = osig.items as Array<{ server: string; osFamily: string; availability: string }>;
-    expect(rows.length).toBeGreaterThan(0);
-    expect(rows.every((row) => /7DMK|SR680a V4/i.test(row.server))).toBe(true);
+    expect(rows).toHaveLength(8);
+    expect(osig.hiddenWithdrawn).toBeGreaterThan(0);
+    expect(osig.facets).toEqual(expect.any(Object));
+    expect(osig).toMatchObject({ source: "fixture" });
     expect(Buffer.byteLength(JSON.stringify(osig), "utf8")).toBeLessThan(100_000);
     log("osig-rows", rows.length);
+  });
+
+  it("compares matched sections and finds a part across search results", async () => {
+    const compare = await call("press_compare", { ids: ["LP2264", "LP2264"], topic: "gpu", format: "tables" });
+    expect((compare.documents as Array<{ sectionId: string }>).every((document) => document.sectionId === "gpu-accelerators")).toBe(true);
+    expect((compare.byIdentifier as Array<{ value: string }>).some((identifier) => identifier.value === "CBAG")).toBe(true);
+
+    const found = await call("press_find_part", { query: "CBAG" });
+    expect((found.documents as Array<{ formId: string; matches: unknown[] }>)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ formId: "LP2264", matches: expect.any(Array) }),
+    ]));
   });
 
   async function call(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {

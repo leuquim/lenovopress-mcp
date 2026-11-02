@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { PRESS_ORIGIN, type RuntimeConfig } from "./config.js";
-import { PressError } from "./errors.js";
+import { MEMORY_CACHE_SIZE, PRESS_ORIGIN, type RuntimeConfig } from "./config.js";
+import { errorMessage, PressError } from "./errors.js";
+import { LruMap } from "./lru.js";
+
+export const FETCH_SOURCES = ["fixture", "cache", "network"] as const;
+export type FetchSource = typeof FETCH_SOURCES[number];
 
 export interface Fetched {
   url: string;
@@ -11,7 +15,8 @@ export interface Fetched {
   status: number;
   headers: Record<string, string>;
   body: string;
-  source: "fixture" | "cache" | "network";
+  source: FetchSource;
+  retrievedAt: string;
 }
 
 interface CacheRecord {
@@ -20,49 +25,69 @@ interface CacheRecord {
   status: number;
   headers: Record<string, string>;
   body: string;
+  retrievedAt?: string;
 }
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export class PressClient {
-  private lastNetworkAt = 0;
-  private readonly memory = new Map<string, Fetched>();
+  private readonly memory = new LruMap<string, Fetched>(MEMORY_CACHE_SIZE);
+  private readonly pending = new Map<string, Promise<Fetched>>();
 
   constructor(
     private readonly config: RuntimeConfig,
     private readonly fetchImpl: FetchLike = fetch,
   ) {}
 
-  async getText(urlPath: string): Promise<Fetched> {
-    return this.request("GET", urlPath);
+  async getText(urlPath: string, refresh?: boolean | undefined): Promise<Fetched> {
+    return this.request("GET", urlPath, undefined, undefined, refresh);
   }
 
-  async head(urlPath: string): Promise<Fetched> {
-    return this.request("HEAD", urlPath);
+  async head(urlPath: string, refresh?: boolean | undefined): Promise<Fetched> {
+    return this.request("HEAD", urlPath, undefined, undefined, refresh);
   }
 
-  async postForm(urlPath: string, fields: Record<string, string | number>): Promise<Fetched> {
+  async postForm(urlPath: string, fields: Record<string, string | number>, refresh?: boolean | undefined): Promise<Fetched> {
     const body = new URLSearchParams(
       Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, String(value)])),
     ).toString();
-    return this.request("POST", urlPath, body, "application/x-www-form-urlencoded");
+    return this.request("POST", urlPath, body, "application/x-www-form-urlencoded", refresh);
   }
 
-  async request(method: string, urlPath: string, body?: string, contentType?: string): Promise<Fetched> {
+  private request(method: string, urlPath: string, body?: string, contentType?: string, refresh?: boolean | undefined): Promise<Fetched> {
     const url = urlPath.startsWith("http") ? urlPath : `${PRESS_ORIGIN}${urlPath.startsWith("/") ? urlPath : `/${urlPath}`}`;
     const key = cacheKey(method, url, body);
-    const cached = this.memory.get(key);
-    if (cached) return cached;
+    const cached = refresh ? undefined : this.memory.get(key);
+    if (cached) {
+      return Promise.resolve(asCached(cached));
+    }
+    const inFlight = this.pending.get(key);
+    if (inFlight) return inFlight;
 
+    const pending = this.requestUncached(method, url, body, contentType, key, refresh).finally(() => {
+      this.pending.delete(key);
+    });
+    this.pending.set(key, pending);
+    return pending;
+  }
+
+  private async requestUncached(
+    method: string,
+    url: string,
+    body: string | undefined,
+    contentType: string | undefined,
+    key: string,
+    refresh?: boolean | undefined,
+  ): Promise<Fetched> {
     const fixture = await this.readFixture(method, url, body);
     if (fixture) {
-      this.memory.set(key, fixture);
+      this.remember(key, fixture);
       return fixture;
     }
 
-    const disk = await this.readCache(key);
+    const disk = refresh ? null : await this.readCache(key);
     if (disk) {
-      this.memory.set(key, disk);
+      this.remember(key, disk);
       return disk;
     }
 
@@ -70,9 +95,8 @@ export class PressClient {
       throw new PressError("OFFLINE", `No fixture or cache for ${method} ${url}`);
     }
 
-    await this.throttle();
     const fetched = await this.network(method, url, body, contentType);
-    this.memory.set(key, fetched);
+    this.remember(key, fetched);
     await this.writeCache(key, fetched);
     return fetched;
   }
@@ -84,13 +108,14 @@ export class PressClient {
     if (!relative) return null;
     const filePath = path.join(fixtureDir, relative);
     if (!existsSync(filePath)) return null;
+    const retrievedAt = new Date().toISOString();
     if (relative.endsWith(".json") && !relative.includes("osig") && !relative.includes("search")) {
       const parsed = JSON.parse(await readFile(filePath, "utf8")) as CacheRecord;
-      return { ...parsed, url, method, source: "fixture" };
+      return { ...parsed, url, method, source: "fixture", retrievedAt };
     }
     if (relative.endsWith(".head.json")) {
       const parsed = JSON.parse(await readFile(filePath, "utf8")) as CacheRecord;
-      return { ...parsed, url, method, body: parsed.body ?? "", source: "fixture" };
+      return { ...parsed, url, method, body: parsed.body ?? "", source: "fixture", retrievedAt };
     }
     const raw = await readFile(filePath, "utf8");
     if (relative.endsWith(".json")) {
@@ -101,6 +126,7 @@ export class PressClient {
         headers: { "content-type": "application/json" },
         body: raw,
         source: "fixture",
+        retrievedAt,
       };
     }
     return {
@@ -110,6 +136,7 @@ export class PressClient {
       headers: { "content-type": "text/html; charset=UTF-8" },
       body: raw,
       source: "fixture",
+      retrievedAt,
     };
   }
 
@@ -118,7 +145,8 @@ export class PressClient {
     if (!existsSync(filePath)) return null;
     try {
       const parsed = JSON.parse(await readFile(filePath, "utf8")) as CacheRecord;
-      return { ...parsed, source: "cache" };
+      const retrievedAt = parsed.retrievedAt ?? (await stat(filePath)).mtime.toISOString();
+      return { ...parsed, source: "cache", retrievedAt };
     } catch {
       return null;
     }
@@ -132,14 +160,13 @@ export class PressClient {
       status: fetched.status,
       headers: fetched.headers,
       body: fetched.body,
+      retrievedAt: fetched.retrievedAt,
     };
     await writeFile(path.join(this.config.cacheDir, `${key}.json`), JSON.stringify(record), "utf8");
   }
 
-  private async throttle(): Promise<void> {
-    const wait = this.lastNetworkAt + this.config.rateLimitMs - Date.now();
-    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-    this.lastNetworkAt = Date.now();
+  private remember(key: string, fetched: Fetched): void {
+    this.memory.set(key, fetched);
   }
 
   private async network(method: string, url: string, body?: string, contentType?: string): Promise<Fetched> {
@@ -167,14 +194,18 @@ export class PressClient {
       if (response.status >= 400) {
         throw new PressError("HTTP_ERROR", `${method} ${url} returned ${response.status}`, { status: response.status });
       }
-      return { url, method, status: response.status, headers: responseHeaders, body: text, source: "network" };
+      return { url, method, status: response.status, headers: responseHeaders, body: text, source: "network", retrievedAt: new Date().toISOString() };
     } catch (error) {
       if (error instanceof PressError) throw error;
-      throw new PressError("NETWORK", `Failed ${method} ${url}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new PressError("NETWORK", `Failed ${method} ${url}: ${errorMessage(error)}`);
     } finally {
       clearTimeout(timer);
     }
   }
+}
+
+export function asCached<T extends { source: FetchSource }>(value: T): Omit<T, "source"> & { source: FetchSource } {
+  return value.source === "network" ? { ...value, source: "cache" } : value;
 }
 
 export function matchFixture(method: string, url: string, body?: string): string | null {
@@ -185,6 +216,10 @@ export function matchFixture(method: string, url: string, body?: string): string
     return "html/lp2264.html";
   }
   if (upper === "HEAD" && pathname === "/lp2264.pdf") return "http/lp2264.pdf.head.json";
+  if (upper === "GET" && pathname === "/servers/ai-servers") {
+    const page = parsed.searchParams.get("page") ?? "1";
+    if (page === "1" || page === "2") return `html/browse-ai-servers-p${page}.html`;
+  }
   if (upper === "POST" && pathname === "/press/search/jsonquery") {
     const fields = parseForm(body);
     const family = (fields.product_family ?? "").toLowerCase();
@@ -196,6 +231,7 @@ export function matchFixture(method: string, url: string, body?: string): string
     if (term === "4xb7a93127") return "http/search-4xb7a93127.json";
     if (term === "b300") return "http/search-b300.json";
     if (term === "cx8") return "http/search-cx8.json";
+    if (term === "cbag") return "http/search-cbag.json";
     if (term === "sr680a v4" || term === "sr680a") return "http/search-lp2264.json";
   }
   if (upper === "POST" && pathname === "/osig/index/jsonfilter") {

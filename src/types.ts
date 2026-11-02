@@ -53,10 +53,13 @@ export interface SectionPayload {
   formId: string;
   sectionId: string;
   title: string;
-  markdown: string;
-  tables: PressTable[];
+  markdown?: string;
+  tables?: PressTable[];
   identifiers: Identifier[];
   truncated: boolean;
+  rowOffset: number;
+  hasMore: boolean;
+  nextRowOffset: number | null;
 }
 
 export interface ChangeEntry {
@@ -111,7 +114,16 @@ export interface OsigRow {
   osSubVersion: string;
   supportStatement: string;
   availability: string;
-  productGuideUrl: string | null;
+  notes: string;
+  formFactor: string;
+  serverFamily: string;
+  replacementServer?: string;
+  replacementUrl?: string;
+}
+
+export interface OsigFacet {
+  value: string;
+  count: number;
 }
 
 export interface OsigPage {
@@ -121,6 +133,14 @@ export interface OsigPage {
   offset: number;
   limit: number;
   hasMore: boolean;
+  hiddenWithdrawn: number;
+  facets: {
+    osFamily: OsigFacet[];
+    osVersion: OsigFacet[];
+    osSubVersion: OsigFacet[];
+    supportStatement: OsigFacet[];
+    availability: OsigFacet[];
+  };
 }
 
 export interface PdfInfo {

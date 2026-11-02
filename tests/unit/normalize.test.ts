@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { normalizeOsig, normalizeSearch, rankHits } from "../../src/normalize.js";
+import { normalizeOsig, normalizeOsigRows, normalizeSearch, rankHits } from "../../src/normalize.js";
 
 const searchDir = path.join(import.meta.dirname, "..", "..", "fixtures", "http");
 
@@ -40,14 +40,49 @@ describe("search normalize", () => {
 });
 
 describe("OSIG normalize", () => {
-  it("pages filtered OSIG rows and parses the machine type", () => {
+  it("filters OSIG rows, computes facets before pagination, and keeps row metadata", () => {
     const raw = JSON.parse(readFileSync(path.join(searchDir, "osig-7dmk.json"), "utf8")) as { items: unknown[] };
-    const page = normalizeOsig(raw, { offset: 0, limit: 5, includeWithdrawn: false });
-    expect(page.items.length).toBeGreaterThan(0);
-    expect(page.items.length).toBeLessThanOrEqual(5);
-    expect(page.items.every((row) => /7DMK/i.test(row.server))).toBe(true);
-    expect(page.items[0]?.machineType).toBe("7DMK");
-    expect(page.items.some((row) => /Withdrawn/i.test(row.availability))).toBe(false);
+    const rows = normalizeOsigRows(raw);
+    const filtered = normalizeOsig(rows, {
+      offset: 0,
+      limit: 1,
+      includeWithdrawn: true,
+      osFamily: "Red Hat Enterprise Linux",
+      osVersion: "RHEL 9",
+      supportStatement: "Supported & Certified",
+    });
+    expect(filtered.items).toHaveLength(1);
+    expect(filtered.totalItems).toBeGreaterThan(1);
+    expect(filtered.hasMore).toBe(true);
+    expect(filtered.items.every((row) => row.osVersion === "RHEL 9")).toBe(true);
+    expect(filtered.facets.osSubVersion.map((facet) => facet.value)).toEqual(expect.arrayContaining(["RHEL 9.5", "RHEL 9.6"]));
+
+    const subVersion = normalizeOsig(rows, {
+      offset: 0,
+      limit: 5,
+      includeWithdrawn: true,
+      osVersion: "rhel 9.6",
+    });
+    expect(subVersion.items).toHaveLength(1);
+    expect(subVersion.items[0]?.osSubVersion).toBe("RHEL 9.6");
+
+    const withdrawn = normalizeOsig(rows, {
+      offset: 0,
+      limit: 5,
+      includeWithdrawn: true,
+      availability: "withdrawn",
+    });
+    expect(withdrawn.items.length).toBeGreaterThan(0);
+    expect(withdrawn.items[0]).toMatchObject({
+      replacementServer: "SR680a V4 (7DMK)",
+      replacementUrl: "https://lenovopress.lenovo.com/lp2264",
+    });
+
+    const page = normalizeOsig(rows, { offset: 0, limit: 5, includeWithdrawn: false });
+    expect(page.totalItems).toBe(8);
+    expect(page.hiddenWithdrawn).toBe(1);
+    expect(page.facets.availability).toEqual([{ value: "Available", count: 8 }, { value: "Withdrawn", count: 1 }]);
+    expect(page.facets.osFamily).toEqual([...page.facets.osFamily].sort((left, right) => right.count - left.count || left.value.localeCompare(right.value)));
     expect(JSON.stringify(page).length).toBeLessThan(50_000);
   });
 });

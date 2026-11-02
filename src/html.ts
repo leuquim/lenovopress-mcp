@@ -47,6 +47,10 @@ export function stripTags(html: string): string {
   );
 }
 
+export function collapseText(html: string): string {
+  return stripTags(html).replace(/\s+/g, " ").trim();
+}
+
 export function attr(tag: string, name: string): string | null {
   const match = tag.match(new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
   if (!match) return null;
